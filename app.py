@@ -56,29 +56,29 @@ st.markdown(
 # -----------------------------------------------------------------------------
 # SECURITY PIN / PASSWORD LOCK
 # -----------------------------------------------------------------------------
-def check_password() -> bool:
-    expected_pw = st.secrets.get("APP_PASSWORD")
-    if not expected_pw:
-        return True
+# def check_password() -> bool:
+#     expected_pw = st.secrets.get("APP_PASSWORD")
+#     if not expected_pw:
+#         return True
 
-    if st.session_state.get("password_authenticated", False):
-        return True
+#     if st.session_state.get("password_authenticated", False):
+#         return True
 
-    st.markdown("### 🔒 PTSB Bills Tracker — Private Access")
-    with st.form("login_form"):
-        entered_pw = st.text_input("Enter PIN / Password", type="password")
-        submitted = st.form_submit_button("Unlock", type="primary", use_container_width=True)
-        if submitted:
-            if entered_pw == str(expected_pw):
-                st.session_state["password_authenticated"] = True
-                st.rerun()
-            else:
-                st.error("❌ Incorrect PIN / Password")
-    return False
+#     st.markdown("### 🔒 PTSB Bills Tracker — Private Access")
+#     with st.form("login_form"):
+#         entered_pw = st.text_input("Enter PIN / Password", type="password")
+#         submitted = st.form_submit_button("Unlock", type="primary", use_container_width=True)
+#         if submitted:
+#             if entered_pw == str(expected_pw):
+#                 st.session_state["password_authenticated"] = True
+#                 st.rerun()
+#             else:
+#                 st.error("❌ Incorrect PIN / Password")
+#     return False
 
 
-if not check_password():
-    st.stop()
+# if not check_password():
+#     st.stop()
 
 
 # -----------------------------------------------------------------------------
