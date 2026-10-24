@@ -5,7 +5,7 @@ import streamlit as st
 from supabase import create_client, Client
 
 # -----------------------------------------------------------------------------
-# PAGE CONFIG & RESPONSIVE STYLING (FORCED HIGH-CONTRAST STATUS CARD)
+# PAGE CONFIG & RESPONSIVE STYLING
 # -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="PTSB Bills & DD Tracker",
@@ -22,43 +22,30 @@ st.markdown(
         padding-bottom: 3rem !important;
         max-width: 1280px;
     }
-    /* Force high-contrast dark card style so it never washes out in light mode */
+    /* Solid high-contrast background with explicitly forced white/emerald text */
     .status-banner {
         padding: 1.25rem 1.5rem;
         border-radius: 16px;
         margin-bottom: 1rem;
-        background: linear-gradient(135deg, #064e3b !important, #0f172a !important);
-        border: 1px solid rgba(16, 185, 129, 0.5) !important;
-        color: #f8fafc !important;
+        background: #064e3b !important;
+        border: 2px solid #10b981 !important;
+        color: #ffffff !important;
     }
     .status-banner * {
-        color: #f8fafc !important;
+        color: #ffffff !important;
     }
-    .banner-ok {
-        background: linear-gradient(135deg, #064e3b !important, #0f172a !important) !important;
-        border-color: #10b981 !important;
-    }
-    .banner-warn {
-        background: linear-gradient(135deg, #78350f !important, #0f172a !important) !important;
-        border-color: #f59e0b !important;
-    }
-    .banner-danger {
-        background: linear-gradient(135deg, #881337 !important, #0f172a !important) !important;
-        border-color: #f43f5e !important;
-    }
-    .big-num {
-        font-family: 'SF Mono', 'JetBrains Mono', monospace;
-        font-size: 2.2rem;
-        font-weight: 800;
-        line-height: 1.15;
+    .status-banner .big-num {
         color: #34d399 !important;
+    }
+    .status-banner .sub-label {
+        color: #a7f3d0 !important;
     }
     .sub-label {
         font-size: 0.8rem;
         text-transform: uppercase;
         letter-spacing: 0.06em;
         font-weight: 600;
-        color: #a7f3d0 !important;
+        opacity: 0.85;
     }
     </style>
     """,
@@ -272,27 +259,24 @@ with hdr_right:
 # -----------------------------------------------------------------------------
 # HERO BANNER & RECONCILIATION PANEL
 # -----------------------------------------------------------------------------
-top_left, top_right = st.columns([1.1, 1.9], gap="large")
+top_left, top_right = st.columns([1.0, 2.0], gap="large")
 
 with top_left:
     if dd_account_buffer >= 20:
-        b_class = "banner-ok"
         b_title = "🟢 BUFFER HEALTHY"
         b_msg = f"Covers remaining unpaid bills ({fmt_eur(bills_unpaid_total)}) with {fmt_eur(dd_account_buffer)} to spare."
     elif dd_account_buffer >= 0:
-        b_class = "banner-warn"
         b_title = "🟡 TIGHT BUFFER"
         b_msg = f"Remaining bills are covered, but margin is tight ({fmt_eur(dd_account_buffer)})."
     else:
-        b_class = "banner-danger"
         b_title = "🔴 SHORTFALL ALERT"
         b_msg = f"Transfer at least {fmt_eur(abs(dd_account_buffer))} into PTSB."
 
     st.markdown(
         f"""
-        <div class="status-banner {b_class}">
+        <div class="status-banner">
             <div class="sub-label">{b_title}</div>
-            <div class="big-num" style="margin: 0.3rem 0;">{fmt_eur(dd_account_buffer, plus=True)}</div>
+            <div class="big-num" style="margin: 0.3rem 0; font-size: 2rem;">{fmt_eur(dd_account_buffer, plus=True)}</div>
             <div style="font-size: 0.85rem; line-height: 1.4;">{b_msg}</div>
         </div>
         """,
@@ -338,7 +322,8 @@ with top_right:
                         supabase.table("ptsb_cycle_meta").update({"actual_balance": calculated_balance, "balanced_date": str(date.today())}).eq("id", 1).execute()
                         st.rerun()
 
-        m1, m2, m3, m4 = st.columns(4)
+        # Fixed metric column widths to prevent truncation (-€2,948...)
+        m1, m2, m3, m4 = st.columns([1.1, 1.1, 1.1, 1.1])
         m1.metric("Paid", fmt_eur(-bills_paid_total))
         m2.metric("Unpaid", fmt_eur(bills_unpaid_total))
         m3.metric("Adjustments", fmt_eur(adjustments_total, plus=True))
