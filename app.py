@@ -5,7 +5,7 @@ import streamlit as st
 from supabase import create_client, Client
 
 # -----------------------------------------------------------------------------
-# PAGE CONFIG & RESPONSIVE STYLING
+# PAGE CONFIG & RESPONSIVE STYLING (FIXED TOP CUT-OFF)
 # -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="PTSB Bills & DD Tracker",
@@ -17,9 +17,10 @@ st.set_page_config(
 st.markdown(
     """
     <style>
+    /* Fix top cut-off below Streamlit header toolbar */
     .block-container {
-        padding-top: 1rem;
-        padding-bottom: 3rem;
+        padding-top: 2.8rem !important;
+        padding-bottom: 3rem !important;
         max-width: 1280px;
     }
     .status-banner {
