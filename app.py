@@ -510,7 +510,7 @@ with side_col:
     st.subheader("📊 By Payment Type")
     with st.container(border=True):
         for pt_code, pt_label in [("SO", "Standing Orders"), ("DD", "Direct Debits"), ("Card", "Recurring Card")]:
-            pt_bills = [b for b in regular_bills if b.get("payment_type"] == pt_code]
+            pt_bills = [b for b in regular_bills if b.get("payment_type") == pt_code]
             pt_paid = sum(effective_amount(b) for b in pt_bills if b.get("is_paid"))
             pt_unpaid = sum(effective_amount(b) for b in pt_bills if not b.get("is_paid"))
             st.markdown(f"**{pt_label}**: {fmt_eur(pt_paid + pt_unpaid)} <span style='font-size:0.78rem; opacity:0.8;'>(Paid: {fmt_eur(pt_paid)})</span>", unsafe_allow_html=True)
