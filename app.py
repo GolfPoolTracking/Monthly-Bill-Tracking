@@ -5,7 +5,7 @@ import streamlit as st
 from supabase import create_client, Client
 
 # -----------------------------------------------------------------------------
-# PAGE CONFIG & RESPONSIVE STYLING (FIXED TOP CUT-OFF)
+# PAGE CONFIG & RESPONSIVE STYLING (FORCED HIGH-CONTRAST STATUS CARD)
 # -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="PTSB Bills & DD Tracker",
@@ -17,42 +17,48 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    /* Fix top cut-off below Streamlit header toolbar */
     .block-container {
         padding-top: 2.8rem !important;
         padding-bottom: 3rem !important;
         max-width: 1280px;
     }
+    /* Force high-contrast dark card style so it never washes out in light mode */
     .status-banner {
         padding: 1.25rem 1.5rem;
         border-radius: 16px;
         margin-bottom: 1rem;
-        border: 1px solid rgba(255,255,255,0.15);
+        background: linear-gradient(135deg, #064e3b !important, #0f172a !important);
+        border: 1px solid rgba(16, 185, 129, 0.5) !important;
+        color: #f8fafc !important;
+    }
+    .status-banner * {
+        color: #f8fafc !important;
     }
     .banner-ok {
-        background: linear-gradient(135deg, rgba(6, 78, 59, 0.85), rgba(15, 23, 42, 0.95));
-        border-color: rgba(16, 185, 129, 0.5);
+        background: linear-gradient(135deg, #064e3b !important, #0f172a !important) !important;
+        border-color: #10b981 !important;
     }
     .banner-warn {
-        background: linear-gradient(135deg, rgba(120, 53, 15, 0.85), rgba(15, 23, 42, 0.95));
-        border-color: rgba(245, 158, 11, 0.5);
+        background: linear-gradient(135deg, #78350f !important, #0f172a !important) !important;
+        border-color: #f59e0b !important;
     }
     .banner-danger {
-        background: linear-gradient(135deg, rgba(136, 19, 55, 0.9), rgba(15, 23, 42, 0.95));
-        border-color: rgba(244, 63, 94, 0.6);
+        background: linear-gradient(135deg, #881337 !important, #0f172a !important) !important;
+        border-color: #f43f5e !important;
     }
     .big-num {
         font-family: 'SF Mono', 'JetBrains Mono', monospace;
         font-size: 2.2rem;
         font-weight: 800;
         line-height: 1.15;
+        color: #34d399 !important;
     }
     .sub-label {
         font-size: 0.8rem;
         text-transform: uppercase;
         letter-spacing: 0.06em;
         font-weight: 600;
-        opacity: 0.85;
+        color: #a7f3d0 !important;
     }
     </style>
     """,
@@ -287,7 +293,7 @@ with top_left:
         <div class="status-banner {b_class}">
             <div class="sub-label">{b_title}</div>
             <div class="big-num" style="margin: 0.3rem 0;">{fmt_eur(dd_account_buffer, plus=True)}</div>
-            <div style="font-size: 0.85rem; line-height: 1.4; opacity: 0.95;">{b_msg}</div>
+            <div style="font-size: 0.85rem; line-height: 1.4;">{b_msg}</div>
         </div>
         """,
         unsafe_allow_html=True,
