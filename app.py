@@ -59,6 +59,36 @@ st.markdown(
 
 
 # -----------------------------------------------------------------------------
+# SECURITY PIN / PASSWORD LOCK (Protects Public Streamlit URLs)
+# -----------------------------------------------------------------------------
+def check_password() -> bool:
+    """Blocks access to the app until the user enters APP_PASSWORD from st.secrets."""
+    expected_pw = st.secrets.get("APP_PASSWORD")
+    if not expected_pw:
+        # If no APP_PASSWORD is set in secrets yet, allow access but show a reminder
+        return True
+
+    if st.session_state.get("password_authenticated", False):
+        return True
+
+    st.markdown("### 🔒 PTSB Bills Tracker — Private Access")
+    with st.form("login_form"):
+        entered_pw = st.text_input("Enter PIN / Password", type="password")
+        submitted = st.form_submit_button("Unlock", type="primary", use_container_width=True)
+        if submitted:
+            if entered_pw == str(expected_pw):
+                st.session_state["password_authenticated"] = True
+                st.rerun()
+            else:
+                st.error("❌ Incorrect PIN / Password")
+    return False
+
+
+if not check_password():
+    st.stop()
+
+
+# -----------------------------------------------------------------------------
 # SUPABASE CONNECTION (Supports both flat secrets and [connections.supabase])
 # -----------------------------------------------------------------------------
 @st.cache_resource
@@ -243,13 +273,10 @@ with hdr_right:
                 "New Balance as at Pay Day (€)", value=float(payday_balance), step=10.0, format="%.2f"
             )
             if st.button("🚀 Reset Cycle & Start Month", type="primary", use_container_width=True):
-                # Reset all bills to Not Paid & clear one-month overrides
                 supabase.table("ptsb_bills").update(
                     {"is_paid": False, "override_amount": None}
                 ).neq("id", 0).execute()
-                # Clear cycle adjustments
                 supabase.table("ptsb_adjustments").delete().neq("id", 0).execute()
-                # Update cycle metadata
                 supabase.table("ptsb_cycle_meta").update(
                     {
                         "salary_month": new_m,
@@ -410,7 +437,6 @@ with main_col:
                 new_paid_now = st.checkbox("Already Paid in current cycle?", value=False)
                 if st.form_submit_button("Add Regular Bill", type="primary", use_container_width=True):
                     if new_payee.strip():
-                        # Place at end of same due_day group
                         same_day_ties = [
                             int(b.get("sort_tiebreaker") or 10)
                             for b in regular_bills
