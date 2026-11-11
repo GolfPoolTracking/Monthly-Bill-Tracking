@@ -422,13 +422,13 @@ with main_col:
                 ca, cb = st.columns(2)
                 new_type = ca.selectbox("Type", ["DD", "SO", "Card"])
                 new_due = cb.number_input("Due Day (1-31)", 1, 31, 24)
-                new_amt = st.number_input("Amount (€)", 0.0, value=25.0, step=1.0)
+                new_amt = st.number_input("Amount (€)", min_value=0.0, value=None, placeholder="0.00", step=1.0, format="%.2f")
                 new_paid = st.checkbox("Already Paid?")
                 if st.form_submit_button("Add Bill", type="primary", use_container_width=True):
                     if new_payee.strip():
                         supabase.table("ptsb_bills").insert({
                             "category": "regular", "payee": new_payee.strip(), "payment_type": new_type,
-                            "due_day": int(new_due), "default_amount": round(float(new_amt), 2),
+                            "due_day": int(new_due), "default_amount": round(float(new_amt or 0.0), 2),
                             "is_paid": bool(new_paid), "active_in_cycle": True, "sort_tiebreaker": 10
                         }).execute()
                         st.rerun()
@@ -561,7 +561,7 @@ with main_col:
                 ah1, ah2, ah3 = st.columns(3)
                 ah_day_in = ah1.number_input("Due Day (1-31)", 1, 31, 15)
                 ah_mon_in = ah2.selectbox("Due Month", MONTHS_LIST, index=MONTHS_LIST.index(current_cycle_month))
-                ah_a = ah3.number_input("Amount (€)", 0.0, step=5.0, format="%.2f")
+                ah_a = ah3.number_input("Amount (€)", min_value=0.0, value=None, placeholder="0.00", step=5.0, format="%.2f")
                 ah_act_in = st.checkbox("Active in this cycle?", value=True)
                 if st.form_submit_button("Add Ad-Hoc Bill", type="primary", use_container_width=True):
                     if ah_p.strip():
@@ -571,7 +571,7 @@ with main_col:
                             "payment_type": "DD",
                             "due_day": int(ah_day_in),
                             "adhoc_date_label": ah_mon_in,
-                            "default_amount": round(float(ah_a), 2),
+                            "default_amount": round(float(ah_a or 0.0), 2),
                             "is_paid": False,
                             "active_in_cycle": bool(ah_act_in),
                         }).execute()
@@ -583,9 +583,9 @@ with side_col:
     with st.container(border=True):
         with st.form("add_adj", clear_on_submit=True):
             ad_desc = st.text_input("Note", placeholder="e.g. Card spend / refund")
-            ad_amt = st.number_input("Amount (€) (- for debit)", value=0.0, step=1.0, format="%.2f")
+            ad_amt = st.number_input("Amount (€) (- for debit)", value=None, placeholder="0.00", step=1.0, format="%.2f")
             if st.form_submit_button("➕ Add Adjustment", type="primary", use_container_width=True):
-                if ad_desc.strip() and abs(ad_amt) > 0.001:
+                if ad_desc.strip() and ad_amt is not None and abs(ad_amt) > 0.001:
                     supabase.table("ptsb_adjustments").insert({"description": ad_desc.strip(), "amount": round(float(ad_amt), 2)}).execute()
                     st.rerun()
 
