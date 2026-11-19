@@ -1,5 +1,6 @@
+import calendar
 import io
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import pandas as pd
 import streamlit as st
 from supabase import create_client, Client
@@ -13,6 +14,11 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
+
+# Bills carried into a new cycle (still pending from the previous one) are stored as
+# ad-hoc rows whose payee starts with this marker. No schema change needed.
+CARRY_PREFIX = "↪ "
+PAYDAY_DOM = 22
 
 MONTHS_LIST = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
@@ -206,6 +212,61 @@ def parse_adhoc_due_info(abill: dict, default_month: str = "Sep") -> tuple[int, 
     return raw_day, due_month, display_str
 
 
+def is_carry(b: dict) -> bool:
+    return b.get("category") == "adhoc" and str(b.get("payee") or "").startswith(CARRY_PREFIX)
+
+
+def payday_in_month(year: int, month: int) -> date:
+    """Salary lands on the 22nd, or the Friday before if the 22nd is a weekend."""
+    d = date(year, month, PAYDAY_DOM)
+    if d.weekday() == 5:
+        d -= timedelta(days=1)
+    elif d.weekday() == 6:
+        d -= timedelta(days=2)
+    return d
+
+
+def next_payday(today: date) -> date:
+    p = payday_in_month(today.year, today.month)
+    if today <= p:
+        return p
+    ny, nm = (today.year + 1, 1) if today.month == 12 else (today.year, today.month + 1)
+    return payday_in_month(ny, nm)
+
+
+def carry_due_date(b: dict, today: date) -> date:
+    """Calendar due date for a carried-over bill (day + month label, nearest year)."""
+    day, mon, _ = parse_adhoc_due_info(b, MONTHS_LIST[today.month - 1])
+    m = MONTHS_LIST.index(mon) + 1 if mon in MONTHS_LIST else today.month
+    y = today.year
+    if m - today.month > 6:
+        y -= 1
+    elif today.month - m > 6:
+        y += 1
+    return date(y, m, min(int(day), calendar.monthrange(y, m)[1]))
+
+
+def carry_row_from(b: dict, today: date) -> dict:
+    """Build a carried-over ad-hoc row from an unpaid bill of the cycle being closed."""
+    d = int(b.get("due_day") or PAYDAY_DOM)
+    # The cycle being closed ends on the 21st of the current calendar month, so
+    # days 1-21 belong to this month and 22-31 to the previous one.
+    m = today.month if d < PAYDAY_DOM else (today.month - 2) % 12 + 1
+    payee = str(b.get("payee") or "")
+    return {
+        "category": "adhoc",
+        "payee": payee if payee.startswith(CARRY_PREFIX) else CARRY_PREFIX + payee,
+        "payment_type": b.get("payment_type") or "DD",
+        "due_day": d,
+        "adhoc_date_label": b.get("adhoc_date_label") if is_carry(b) else MONTHS_LIST[m - 1],
+        "default_amount": round(effective_amount(b), 2),
+        "override_amount": None,
+        "is_paid": False,
+        "active_in_cycle": True,
+        "sort_tiebreaker": 0,
+    }
+
+
 # -----------------------------------------------------------------------------
 # DATA ACCESS LAYER
 # -----------------------------------------------------------------------------
@@ -247,7 +308,10 @@ regular_bills.sort(
     )
 )
 
-adhoc_bills = [b for b in all_bills if b.get("category") == "adhoc"]
+carry_bills = [b for b in all_bills if is_carry(b)]
+carry_bills.sort(key=lambda b: (carry_due_date(b, date.today()), int(b.get("id") or 0)))
+
+adhoc_bills = [b for b in all_bills if b.get("category") == "adhoc" and not is_carry(b)]
 adhoc_bills.sort(
     key=lambda b: (
         0 if b.get("active_in_cycle") else 1,
@@ -266,8 +330,11 @@ active_adhoc_bills = [b for b in adhoc_bills if b.get("active_in_cycle")]
 paid_adhoc_sum = sum(effective_amount(b) for b in active_adhoc_bills if b.get("is_paid"))
 unpaid_adhoc_sum = sum(effective_amount(b) for b in active_adhoc_bills if not b.get("is_paid"))
 
-bills_paid_total = round(paid_regular_sum + paid_adhoc_sum, 2)
-bills_unpaid_total = round(unpaid_regular_sum + unpaid_adhoc_sum, 2)
+paid_carry_sum = sum(effective_amount(b) for b in carry_bills if b.get("is_paid"))
+unpaid_carry_sum = sum(effective_amount(b) for b in carry_bills if not b.get("is_paid"))
+
+bills_paid_total = round(paid_regular_sum + paid_adhoc_sum + paid_carry_sum, 2)
+bills_unpaid_total = round(unpaid_regular_sum + unpaid_adhoc_sum + unpaid_carry_sum, 2)
 total_cycle_commitment = round(bills_paid_total + bills_unpaid_total, 2)
 
 adjustments_total = round(sum(float(a.get("amount") or 0.0) for a in adjustments), 2)
@@ -282,24 +349,38 @@ is_account_balanced = abs(balance_discrepancy) < 0.005
 
 paid_reg_count = sum(1 for b in regular_bills if b.get("is_paid"))
 
+# Bills a "New Cycle" reset would carry forward (unpaid regular + still-unpaid carried rows)
+carry_candidates = [b for b in regular_bills if not b.get("is_paid")] + [b for b in carry_bills if not b.get("is_paid")]
+carry_candidates_total = round(sum(effective_amount(b) for b in carry_candidates), 2)
+
+today = date.today()
+upcoming_payday = next_payday(today)
+
 # -----------------------------------------------------------------------------
 # HEADER & ACTIONS
 # -----------------------------------------------------------------------------
 hdr_left, hdr_right = st.columns([2.2, 1.8], gap="medium")
 with hdr_left:
     st.markdown(f"### 💶 PTSB Bills Tracker — **{current_cycle_month} Cycle**")
-    st.caption("Payday Cycle: **22nd → 21st** • Dedicated Bills Account Liquidity")
+    if upcoming_payday == today:
+        pay_txt = "💸 **Payday is today**"
+    else:
+        days_to = (upcoming_payday - today).days
+        pay_txt = f"Next payday **{upcoming_payday.strftime('%a %d %b')}** ({days_to} day{'s' if days_to != 1 else ''})"
+    if upcoming_payday.day != PAYDAY_DOM:
+        pay_txt += " — early, 22nd is a weekend"
+    st.caption(f"Payday Cycle: **22nd → 21st** • {pay_txt}")
 
 with hdr_right:
     q1, q2 = st.columns(2)
     with q1:
         if st.button("✅ Mark Due Up to Today", use_container_width=True):
-            today_pos = cycle_sort_key(date.today().day)
+            today_pos = cycle_sort_key(today.day)
             ids_to_mark = [
                 b["id"]
                 for b in (regular_bills + active_adhoc_bills)
                 if not b.get("is_paid") and cycle_sort_key(int(b.get("due_day") or 22)) <= today_pos
-            ]
+            ] + [b["id"] for b in carry_bills if not b.get("is_paid") and carry_due_date(b, today) <= today]
             if ids_to_mark:
                 supabase.table("ptsb_bills").update({"is_paid": True}).in_("id", ids_to_mark).execute()
                 st.rerun()
@@ -311,9 +392,29 @@ with hdr_right:
             st.markdown("##### Start New 22nd Payday Cycle")
             next_idx = (MONTHS_LIST.index(current_cycle_month) + 1) % 12
             new_m = st.selectbox("New Salary Month", MONTHS_LIST, index=next_idx)
-            new_payday_bal = st.number_input("New Payday Balance (€)", value=float(payday_balance), step=10.0, format="%.2f")
+            new_payday_bal = st.number_input(
+                "New Payday Balance (€)", value=float(payday_balance), step=10.0, format="%.2f",
+                help="Your real PTSB balance once salary has landed — even if some old-cycle bills haven't come out yet.",
+            )
+            do_carry = False
+            if carry_candidates:
+                st.markdown(f"**Still pending from {current_cycle_month}:**")
+                for cb in carry_candidates:
+                    st.markdown(
+                        f"- {str(cb['payee']).removeprefix(CARRY_PREFIX)} • {ordinal_day(int(cb.get('due_day') or 22))} — {fmt_eur(effective_amount(cb))}"
+                    )
+                do_carry = st.checkbox(
+                    f"Carry these over ({fmt_eur(carry_candidates_total)})",
+                    value=True,
+                    help="Use when you're paid early: they stay as 'to come out' in the new cycle, so the buffer is right from day one. Tick them off when they clear.",
+                )
             if st.button("🚀 Reset & Start New Cycle", type="primary", use_container_width=True):
+                new_carry_rows = [carry_row_from(cb, today) for cb in carry_candidates] if do_carry else []
+                if carry_bills:
+                    supabase.table("ptsb_bills").delete().in_("id", [b["id"] for b in carry_bills]).execute()
                 supabase.table("ptsb_bills").update({"is_paid": False, "override_amount": None}).neq("id", 0).execute()
+                if new_carry_rows:
+                    supabase.table("ptsb_bills").insert(new_carry_rows).execute()
                 supabase.table("ptsb_adjustments").delete().neq("id", 0).execute()
                 supabase.table("ptsb_cycle_meta").update(
                     {
@@ -324,6 +425,10 @@ with hdr_right:
                         "updated_at": datetime.utcnow().isoformat(),
                     }
                 ).eq("id", 1).execute()
+                # Drop stale widget state so ticked boxes / old balances don't write themselves back
+                for k in list(st.session_state.keys()):
+                    if k in ("inp_payday_bal", "inp_actual_bal") or str(k).startswith(("r_pd_", "ah_pd_", "c_pd_")):
+                        del st.session_state[k]
                 st.rerun()
 
 # -----------------------------------------------------------------------------
@@ -406,6 +511,49 @@ st.divider()
 main_col, side_col = st.columns([2.0, 1.1], gap="large")
 
 with main_col:
+    # -------------------------------------------------------------------------
+    # EARLY PAYDAY NUDGE
+    # -------------------------------------------------------------------------
+    this_month_payday = payday_in_month(today.year, today.month)
+    early_window = this_month_payday.day != PAYDAY_DOM and this_month_payday <= today < this_month_payday.replace(day=PAYDAY_DOM)
+    # Only nudge while the old cycle is still open (some bills ticked, nothing carried yet)
+    if early_window and carry_candidates and paid_reg_count > 0 and not carry_bills:
+        st.info(
+            f"💸 Paid early today ({today.strftime('%a %d %b')}). Hit **🔄 New Cycle** with your new balance — "
+            f"the {len(carry_candidates)} pending bill{'s' if len(carry_candidates) != 1 else ''} "
+            f"({fmt_eur(carry_candidates_total)}) carry over automatically."
+        )
+
+    # -------------------------------------------------------------------------
+    # CARRIED OVER FROM PREVIOUS CYCLE
+    # -------------------------------------------------------------------------
+    if carry_bills:
+        carry_paid_n = sum(1 for b in carry_bills if b.get("is_paid"))
+        st.subheader(f"↪️ Carried Over ({carry_paid_n}/{len(carry_bills)})")
+        st.caption("Pending from last cycle — still coming out of this balance. Tick when cleared.")
+        with st.container(border=True):
+            for c_idx, cbill in enumerate(carry_bills):
+                cid = cbill["id"]
+                c_paid = bool(cbill.get("is_paid"))
+                c_due = carry_due_date(cbill, today)
+                st.markdown("<div class='compact-bill-row'></div>", unsafe_allow_html=True)
+                cc_main, cc_del = st.columns([5.2, 0.7], vertical_alignment="center")
+                with cc_main:
+                    c_label = (
+                        f"**{str(cbill['payee']).removeprefix(CARRY_PREFIX)}** `{cbill.get('payment_type', 'DD')}` "
+                        f"• {ordinal_day(c_due.day)} {MONTHS_LIST[c_due.month - 1]} — **{fmt_eur(effective_amount(cbill))}**"
+                    )
+                    nc_state = st.checkbox(c_label, value=c_paid, key=f"c_pd_{cid}")
+                    if nc_state != c_paid:
+                        supabase.table("ptsb_bills").update({"is_paid": nc_state}).eq("id", cid).execute()
+                        st.rerun()
+                with cc_del:
+                    if st.button("✖", key=f"c_del_{cid}", help="Remove carried bill", use_container_width=True):
+                        supabase.table("ptsb_bills").delete().eq("id", cid).execute()
+                        st.rerun()
+                if c_idx < len(carry_bills) - 1:
+                    st.markdown("<hr style='margin: 0.15rem 0; opacity: 0.15;'>", unsafe_allow_html=True)
+
     # -------------------------------------------------------------------------
     # REGULAR BILLS (Compact Single-Line Mobile Layout)
     # -------------------------------------------------------------------------
@@ -650,6 +798,16 @@ with side_col:
                 "Due": ah_disp,
                 "Amount": effective_amount(ab),
                 "Status": ("Paid" if ab.get("is_paid") else "Unpaid") if ab.get("active_in_cycle") else "Inactive",
+            })
+        for cb in carry_bills:
+            c_due = carry_due_date(cb, today)
+            export_rows.append({
+                "Category": "Carried Over",
+                "Payee": str(cb["payee"]).removeprefix(CARRY_PREFIX),
+                "Type": cb.get("payment_type", "DD"),
+                "Due": f"{ordinal_day(c_due.day)} {MONTHS_LIST[c_due.month - 1]}",
+                "Amount": effective_amount(cb),
+                "Status": "Paid" if cb.get("is_paid") else "Unpaid",
             })
         pd.DataFrame(export_rows).to_excel(writer, sheet_name="Bills", index=False)
 
