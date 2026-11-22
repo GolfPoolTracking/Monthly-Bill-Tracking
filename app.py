@@ -15,6 +15,10 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# --- Error reporting (Sentry) ---
+from sentry_setup import init_sentry  # noqa: E402
+init_sentry()
+
 # Bills carried into a new cycle (still pending from the previous one) are stored as
 # ad-hoc rows whose payee starts with this marker. No schema change needed.
 CARRY_PREFIX = "↪ "
