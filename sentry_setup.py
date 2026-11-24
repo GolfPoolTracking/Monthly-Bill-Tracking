@@ -43,17 +43,24 @@ def _hook_streamlit_errors() -> None:
 
 @st.cache_resource(show_spinner=False)
 def init_sentry() -> bool:
-    """Start Sentry once per server process (cached across reruns)."""
-    dsn = st.secrets.get("SENTRY_DSN")
-    if not dsn:
+    """Start Sentry once per server process (cached across reruns).
+
+    Never raises: if Sentry fails to start (bad DSN, SDK change, ...),
+    the app carries on without error reporting instead of crashing."""
+    try:
+        dsn = st.secrets.get("SENTRY_DSN")
+        if not dsn:
+            return False
+        sentry_sdk.init(
+            dsn=dsn,
+            environment="production",
+            send_default_pii=False,   # don't send IPs / user details
+            traces_sample_rate=0.0,   # errors only, no performance tracing
+        )
+        _hook_streamlit_errors()
+        # One info message each time the app (re)starts: confirms the connection.
+        sentry_sdk.capture_message("App started - Sentry connected", level="info")
+        return True
+    except Exception:
+        _LOG.exception("Sentry failed to start; running without error reporting")
         return False
-    sentry_sdk.init(
-        dsn=dsn,
-        environment="production",
-        send_default_pii=False,   # don't send IPs / user details
-        traces_sample_rate=0.0,   # errors only, no performance tracing
-    )
-    _hook_streamlit_errors()
-    # One info message each time the app (re)starts: confirms the connection.
-    sentry_sdk.capture_message("App started - Sentry connected", level="info")
-    return True
